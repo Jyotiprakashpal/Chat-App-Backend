@@ -10,15 +10,21 @@ exports.sendMessage = async (req, res) => {
         const { recipient, content } = req.body;
         const sender = req.user._id;
 
+        // Find recipient by email
+        const recipientUser = await User.findOne({ email: recipient });
+        if (!recipientUser) {
+            return res.status(404).json({ message: "Recipient not found" });
+        }
+
         const message = await Message.create({
             sender,
-            recipient,
-            content
+            recipient: recipientUser._id,
+            content: String(content)
         });
 
         // Populate sender info
-        await message.populate('sender', 'username');
-        await message.populate('recipient', 'username');
+        await message.populate('sender', 'username email');
+        await message.populate('recipient', 'username email');
 
         res.status(201).json(message);
     } catch (error) {
@@ -26,16 +32,31 @@ exports.sendMessage = async (req, res) => {
     }
 };
 
-// Get conversation with another user
+// Get conversation with another user (by email or userId)
 exports.getConversation = async (req, res) => {
     try {
-        const { userId } = req.params;
+        const { userId, email } = req.params;
         const currentUserId = req.user._id;
+
+        // Determine which identifier to use
+        let identifier = userId || email;
+        
+        // Check if identifier is an email
+        let recipientUserId;
+        if (identifier && identifier.includes('@')) {
+            const recipientUser = await User.findOne({ email: identifier });
+            if (!recipientUser) {
+                return res.status(404).json({ message: "User not found" });
+            }
+            recipientUserId = recipientUser._id;
+        } else {
+            recipientUserId = identifier;
+        }
 
         const messages = await Message.find({
             $or: [
-                { sender: currentUserId, recipient: userId },
-                { sender: userId, recipient: currentUserId }
+                { sender: currentUserId, recipient: recipientUserId },
+                { sender: recipientUserId, recipient: currentUserId }
             ]
         }).sort({ createdAt: 1 });
 
@@ -80,7 +101,7 @@ exports.getAllConversations = async (req, res) => {
         // Populate partner info
         const result = await Promise.all(
             Object.values(conversations).map(async (conv) => {
-                const partner = await User.findById(conv.partnerId).select('username');
+                const partner = await User.findById(conv.partnerId).select('username email');
                 return {
                     ...conv,
                     partner

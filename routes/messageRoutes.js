@@ -13,6 +13,11 @@ const { protect } = require('../middleware/authMiddleware');
 
 router.post('/', protect, sendMessage);
 router.get('/conversations', protect, getAllConversations);
+
+// Add email-specific route before the :userId route
+router.get('/email/:email', protect, getConversation);
+
+// This must come after /email/:email route
 router.get('/:userId', protect, getConversation);
 router.put('/read/:senderId', protect, markAsRead);
 
