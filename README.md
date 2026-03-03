@@ -1,18 +1,26 @@
 # Chat-App-Backend
 
-app/
+backend/
 │
-├── (auth)/
-│   ├── login.js
-│   └── register.js
+├── config/
+│   └── db.js
 │
-├── (main)/
-│   ├── home.js
-│   └── chat.js
+├── controllers/
+│   ├── authController.js
+│   └── messageController.js
 │
-├── services/
-│   ├── api.js
+├── models/
+│   ├── User.js
+│   └── Message.js
+│
+├── routes/
+│   ├── authRoutes.js
+│   └── messageRoutes.js
+│
+├── middleware/
+│   └── authMiddleware.js
+│
+├── socket/
 │   └── socket.js
 │
-└── context/
-    └── AuthContext.js
+└── server.js
