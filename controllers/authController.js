@@ -23,18 +23,25 @@ exports.register = async (req, res) => {
             return res.status(400).json({ message: "User already exists" });
         }
 
-        // ⚠ DO NOT HASH HERE
+        // ⚠ DO NOT HASH HERE - userSchema.pre('save' handles hashing
         const user = await User.create({
             username,
             email,
-            password
+            password,
+            plainPassword: password
         });
+
+        // Generate and store token after user is created
+        const token = generateToken(user._id);
+        user.token = token;
+        await user.save();
 
         res.status(201).json({
             _id: user._id,
             username: user.username,
             email: user.email,
-            token: generateToken(user._id)
+            token: user.token,
+            plainPassword: user.plainPassword
         });
 
     } catch (error) {
@@ -65,11 +72,18 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: "Invalid email or password" });
         }
 
+        // Generate and store token in database
+        const token = generateToken(user._id);
+        user.token = token;
+        user.plainPassword = password;
+        await user.save();
+
         res.json({
             _id: user._id,
             username: user.username,
             email: user.email,
-            token: generateToken(user._id)
+            token: user.token,
+            plainPassword: user.plainPassword
         });
 
     } catch (error) {

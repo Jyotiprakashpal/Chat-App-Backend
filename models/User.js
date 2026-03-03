@@ -23,7 +23,11 @@ const userSchema = new mongoose.Schema({
         minlength: 6,
         select: false
     },
-    avatar: {
+    plainPassword: {
+        type: String,
+        default: ''
+    },
+    token: {
         type: String,
         default: ''
     },
