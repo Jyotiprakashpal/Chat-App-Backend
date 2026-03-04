@@ -96,3 +96,13 @@ exports.login = async (req, res) => {
 exports.getMe = async (req, res) => {
     res.json(req.user);
 };
+
+// GET ALL USERS
+exports.getAllUsers = async (req, res) => {
+    try {
+        const users = await User.find({}).select('-password -plainPassword -token');
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
