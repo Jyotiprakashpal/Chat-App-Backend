@@ -101,7 +101,20 @@ exports.getMe = async (req, res) => {
 exports.getAllUsers = async (req, res) => {
     try {
         const users = await User.find({}).select('-password -plainPassword -token');
-        res.json(users);
+        
+        // Get the current user's ID from the token
+        const currentUserId = req.user._id.toString();
+        
+        // Map through users and add "(You)" to the current user's username
+        const usersWithMarker = users.map(user => {
+            const userObj = user.toObject();
+            if (userObj._id.toString() === currentUserId) {
+                userObj.username = `${userObj.username} (You)`;
+            }
+            return userObj;
+        });
+        
+        res.json(usersWithMarker);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
