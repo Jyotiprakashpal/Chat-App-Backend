@@ -101,7 +101,7 @@ GridFsStorage.prototype._removeFile = function(req, file, cb) {
 
 // Create storage engine
 const storage = new GridFsStorage({
-    url: process.env.MONGO_URI || 'mongodb://localhost:27017/RealTimeChattingApp'
+    url: process.env.MONGO_URI
 });
 
 // Filter to allow only images
