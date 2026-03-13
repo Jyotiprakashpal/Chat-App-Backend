@@ -11,6 +11,7 @@ const generateToken = (id) => {
 
 // REGISTER
 exports.register = async (req, res) => {
+    console.log(`API Call: ${req.method} ${req.originalUrl} Body: ${JSON.stringify(req.body)} Params: ${JSON.stringify(req.params)}`);
     try {
         const { username, email, password } = req.body;
 
@@ -52,6 +53,7 @@ exports.register = async (req, res) => {
 
 // LOGIN
 exports.login = async (req, res) => {
+    console.log(`API Call: ${req.method} ${req.originalUrl} Body: ${JSON.stringify(req.body)} Params: ${JSON.stringify(req.params)}`);
     try {
         const { email, password } = req.body;
 
@@ -94,11 +96,13 @@ exports.login = async (req, res) => {
 
 // GET CURRENT USER
 exports.getMe = async (req, res) => {
+    console.log(`GET ${req.originalUrl} called`);
     res.json(req.user);
 };
 
 // GET ALL USERS
 exports.getAllUsers = async (req, res) => {
+    console.log(`GET ${req.originalUrl} called`);
     try {
         const users = await User.find({}).select('-password -plainPassword -token');
         
