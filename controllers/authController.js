@@ -81,11 +81,8 @@ exports.login = async (req, res) => {
         await user.save();
 
         res.json({
-            _id: user._id,
-            username: user.username,
-            email: user.email,
-            token: user.token,
-            plainPassword: user.plainPassword
+            success: true,
+            message: "Login successful",
         });
 
     } catch (error) {
