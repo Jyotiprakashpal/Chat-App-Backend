@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const appRoutes = require('./routes/appRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const imageRoutes = require('./routes/imageRoutes');
 const initializeSocket = require('./socket/socket');
@@ -18,19 +19,22 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = new Server(server, {
     cors: {
-        origin: process.env.CLIENT_URL || 'http://localhost:3000',
+        origin: process.env.CLIENT_URL || '*',
         methods: ['GET', 'POST']
     }
 });
+
+app.set('io', io);
 
 // Connect to Database
 connectDB();
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
 app.use(express.json());
 
 // Routes
+app.use('/api/app', appRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/images', imageRoutes);

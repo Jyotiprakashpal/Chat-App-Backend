@@ -4,6 +4,40 @@
 const Message = require('../models/Message');
 const User = require('../models/User');
 
+const toMessagePayload = (message) => {
+    const senderId = message.sender._id ? message.sender._id.toString() : message.sender.toString();
+    const recipientId = message.recipient._id ? message.recipient._id.toString() : message.recipient.toString();
+
+    return {
+        _id: message._id.toString(),
+        sender: senderId,
+        recipient: recipientId,
+        content: message.content,
+        read: message.read,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        senderUser: message.sender._id ? {
+            _id: senderId,
+            username: message.sender.username,
+            email: message.sender.email
+        } : undefined,
+        recipientUser: message.recipient._id ? {
+            _id: recipientId,
+            username: message.recipient.username,
+            email: message.recipient.email
+        } : undefined
+    };
+};
+
+const emitMessage = (req, message) => {
+    const io = req.app.get('io');
+    if (!io) return;
+
+    const payload = toMessagePayload(message);
+    io.to(payload.sender).to(payload.recipient).emit('newMessage', payload);
+    io.to(payload.sender).to(payload.recipient).emit('receiveMessage', payload);
+};
+
 // Send a new message
 exports.sendMessage = async (req, res) => {
     try {
@@ -25,6 +59,8 @@ exports.sendMessage = async (req, res) => {
         // Populate sender info
         await message.populate('sender', 'username email');
         await message.populate('recipient', 'username email');
+
+        emitMessage(req, message);
 
         res.status(201).json(message);
     } catch (error) {
@@ -120,13 +156,30 @@ exports.markAsRead = async (req, res) => {
     try {
         const { senderId } = req.params;
         const currentUserId = req.user._id;
+        let resolvedSenderId = senderId;
 
-        await Message.updateMany(
-            { sender: senderId, recipient: currentUserId, read: false },
+        if (senderId && senderId.includes('@')) {
+            const senderUser = await User.findOne({ email: senderId }).select('_id');
+            if (!senderUser) {
+                return res.status(404).json({ message: 'Sender not found' });
+            }
+            resolvedSenderId = senderUser._id;
+        }
+
+        const result = await Message.updateMany(
+            { sender: resolvedSenderId, recipient: currentUserId, read: false },
             { $set: { read: true } }
         );
 
-        res.json({ message: 'Messages marked as read' });
+        const io = req.app.get('io');
+        if (io && result.modifiedCount > 0) {
+            io.to(resolvedSenderId.toString()).emit('messagesRead', {
+                readBy: currentUserId.toString(),
+                senderId: resolvedSenderId.toString()
+            });
+        }
+
+        res.json({ message: 'Messages marked as read', modifiedCount: result.modifiedCount });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

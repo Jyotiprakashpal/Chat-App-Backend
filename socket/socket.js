@@ -2,9 +2,16 @@
 // This file handles real-time communication using Socket.io
 
 const jwt = require('jsonwebtoken');
+const Message = require('../models/Message');
 const User = require('../models/User');
 
 let onlineUsers = new Map();
+
+const getUserId = (user) => user._id.toString();
+
+const emitOnlineUsers = (io) => {
+    io.emit('onlineUsers', Array.from(onlineUsers.keys()));
+};
 
 const initializeSocket = (io) => {
     // Authentication middleware for socket connections
@@ -33,10 +40,12 @@ const initializeSocket = (io) => {
         console.log(`User connected: ${socket.user.username}`);
 
         // Add user to online users
-        onlineUsers.set(socket.user._id.toString(), socket.id);
+        onlineUsers.set(getUserId(socket.user), socket.id);
+        socket.join(getUserId(socket.user));
 
         // Broadcast online status
-        io.emit('userOnline', socket.user._id);
+        io.emit('userOnline', getUserId(socket.user));
+        emitOnlineUsers(io);
 
         // Handle joining conversation rooms
         socket.on('joinConversation', (conversationId) => {
@@ -45,17 +54,64 @@ const initializeSocket = (io) => {
         });
 
         // Handle sending messages
-        socket.on('sendMessage', async (data) => {
-            const { recipientId, content } = data;
-            
-            // Emit to recipient's socket if online
-            const recipientSocket = onlineUsers.get(recipientId);
-            if (recipientSocket) {
-                io.to(recipientSocket).emit('newMessage', {
+        socket.on('sendMessage', async (data, callback) => {
+            try {
+                const recipientIdentifier = data.recipientId || data.receiverId || data.recipient || data.receiverEmail;
+                const content = data.content || data.message || data.text;
+
+                if (!recipientIdentifier || !content || !String(content).trim()) {
+                    throw new Error('Recipient and message content are required');
+                }
+
+                const recipientFilters = [{ email: recipientIdentifier }];
+                if (recipientIdentifier.match(/^[0-9a-fA-F]{24}$/)) {
+                    recipientFilters.push({ _id: recipientIdentifier });
+                }
+
+                const recipient = await User.findOne({ $or: recipientFilters }).select('_id username email');
+
+                if (!recipient) {
+                    throw new Error('Recipient not found');
+                }
+
+                const message = await Message.create({
                     sender: socket.user._id,
-                    content,
-                    createdAt: new Date()
+                    recipient: recipient._id,
+                    content: String(content).trim()
                 });
+
+                const payload = {
+                    _id: message._id.toString(),
+                    sender: getUserId(socket.user),
+                    recipient: recipient._id.toString(),
+                    content: message.content,
+                    read: message.read,
+                    createdAt: message.createdAt,
+                    updatedAt: message.updatedAt,
+                    senderUser: {
+                        _id: getUserId(socket.user),
+                        username: socket.user.username,
+                        email: socket.user.email
+                    },
+                    recipientUser: {
+                        _id: recipient._id.toString(),
+                        username: recipient.username,
+                        email: recipient.email
+                    }
+                };
+
+                io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('newMessage', payload);
+                io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('receiveMessage', payload);
+
+                if (typeof callback === 'function') {
+                    callback({ ok: true, message: payload });
+                }
+            } catch (error) {
+                if (typeof callback === 'function') {
+                    callback({ ok: false, message: error.message });
+                } else {
+                    socket.emit('messageError', { message: error.message });
+                }
             }
         });
 
@@ -86,8 +142,9 @@ const initializeSocket = (io) => {
         // Handle disconnect
         socket.on('disconnect', () => {
             console.log(`User disconnected: ${socket.user.username}`);
-            onlineUsers.delete(socket.user._id.toString());
-            io.emit('userOffline', socket.user._id);
+            onlineUsers.delete(getUserId(socket.user));
+            io.emit('userOffline', getUserId(socket.user));
+            emitOnlineUsers(io);
         });
     });
 };
