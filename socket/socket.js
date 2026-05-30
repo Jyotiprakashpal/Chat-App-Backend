@@ -4,6 +4,7 @@
 const jwt = require('jsonwebtoken');
 const Message = require('../models/Message');
 const User = require('../models/User');
+const { sendExpoPushNotification } = require('../utils/pushNotifications');
 
 let onlineUsers = new Map();
 
@@ -68,7 +69,7 @@ const initializeSocket = (io) => {
                     recipientFilters.push({ _id: recipientIdentifier });
                 }
 
-                const recipient = await User.findOne({ $or: recipientFilters }).select('_id username email');
+                const recipient = await User.findOne({ $or: recipientFilters }).select('_id username email expoPushTokens');
 
                 if (!recipient) {
                     throw new Error('Recipient not found');
@@ -102,6 +103,17 @@ const initializeSocket = (io) => {
 
                 io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('newMessage', payload);
                 io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('receiveMessage', payload);
+                sendExpoPushNotification({
+                    tokens: recipient.expoPushTokens,
+                    title: socket.user.username || socket.user.email || 'New message',
+                    body: payload.content,
+                    data: {
+                        type: 'message',
+                        messageId: payload._id,
+                        senderId: getUserId(socket.user),
+                        senderEmail: socket.user.email
+                    }
+                });
 
                 if (typeof callback === 'function') {
                     callback({ ok: true, message: payload });

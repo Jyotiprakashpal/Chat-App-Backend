@@ -3,6 +3,7 @@
 
 const Message = require('../models/Message');
 const User = require('../models/User');
+const { sendExpoPushNotification } = require('../utils/pushNotifications');
 
 const toMessagePayload = (message) => {
     const senderId = message.sender._id ? message.sender._id.toString() : message.sender.toString();
@@ -38,6 +39,20 @@ const emitMessage = (req, message) => {
     io.to(payload.sender).to(payload.recipient).emit('receiveMessage', payload);
 };
 
+const sendMessagePushNotification = async (recipientUser, senderUser, message) => {
+    await sendExpoPushNotification({
+        tokens: recipientUser.expoPushTokens,
+        title: senderUser.username || senderUser.email || 'New message',
+        body: message.content,
+        data: {
+            type: 'message',
+            messageId: message._id.toString(),
+            senderId: senderUser._id.toString(),
+            senderEmail: senderUser.email
+        }
+    });
+};
+
 // Send a new message
 exports.sendMessage = async (req, res) => {
     try {
@@ -49,6 +64,7 @@ exports.sendMessage = async (req, res) => {
         if (!recipientUser) {
             return res.status(404).json({ message: "Recipient not found" });
         }
+        const senderUser = await User.findById(sender).select('username email');
 
         const message = await Message.create({
             sender,
@@ -61,6 +77,7 @@ exports.sendMessage = async (req, res) => {
         await message.populate('recipient', 'username email');
 
         emitMessage(req, message);
+        sendMessagePushNotification(recipientUser, senderUser, message);
 
         res.status(201).json(message);
     } catch (error) {

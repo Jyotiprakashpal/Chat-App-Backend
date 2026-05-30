@@ -38,6 +38,10 @@ const userSchema = new mongoose.Schema({
     lastSeen: {
         type: Date,
         default: Date.now
+    },
+    expoPushTokens: {
+        type: [String],
+        default: []
     }
 }, { timestamps: true });
 

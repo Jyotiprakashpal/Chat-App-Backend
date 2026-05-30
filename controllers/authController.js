@@ -102,7 +102,7 @@ exports.getMe = async (req, res) => {
 exports.getAllUsers = async (req, res) => {
     console.log(`GET ${req.originalUrl} called`);
     try {
-        const users = await User.find({}).select('-password -plainPassword -token');
+        const users = await User.find({}).select('-password -plainPassword -token -expoPushTokens');
         
         // Get the current user's ID from the token
         const currentUserId = req.user._id.toString();
@@ -117,6 +117,27 @@ exports.getAllUsers = async (req, res) => {
         });
         
         res.json(usersWithMarker);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// SAVE EXPO PUSH TOKEN
+exports.savePushToken = async (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ message: 'Push token is required' });
+        }
+
+        await User.findByIdAndUpdate(
+            req.user._id,
+            { $addToSet: { expoPushTokens: token } },
+            { new: true }
+        );
+
+        res.json({ message: 'Push token saved' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
