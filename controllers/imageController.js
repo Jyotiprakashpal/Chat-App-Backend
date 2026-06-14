@@ -1,64 +1,76 @@
-const { getGfs } = require('../config/gridfs');
+const { cloudinary } = require('../config/cloudinary');
 
-// Get gfs instance
-let gfs;
-
-const setupGridFS = () => {
-    gfs = getGfs();
-};
-
-// @desc    Upload image to MongoDB
+// @desc    Upload image to Cloudinary
 // @route   POST /api/images/upload
 // @access  Public
-const uploadImage = (req, res) => {
+const uploadImage = async (req, res) => {
     try {
-        if (!req.file) {
+        const files = req.files;
+        if (!files || files.length === 0) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        res.status(201).json({
+        const uploadOne = (file) => {
+            return new Promise((resolve, reject) => {
+                const streamUpload = cloudinary.uploader.upload_stream(
+                    {
+                        folder: 'chat-app',
+                        resource_type: 'image',
+                    },
+                    (error, result) => {
+                        if (error) return reject(error);
+                        resolve(result);
+                    }
+                );
+
+                streamUpload.end(file.buffer);
+            });
+        };
+
+        const results = await Promise.all(files.map(uploadOne));
+
+        const responsePayload = results.map((uploadResult) => ({
             message: 'Image uploaded successfully',
-            fileId: req.file.id,
-            filename: req.file.filename,
-            url: `/api/images/${req.file.filename}`,
-            contentType: req.file.contentType
-        });
+            publicId: uploadResult.public_id,
+            filename: uploadResult.public_id,
+            url: uploadResult.secure_url,
+            contentType: uploadResult.format ? `image/${uploadResult.format}` : undefined,
+            bytes: uploadResult.bytes,
+            width: uploadResult.width,
+            height: uploadResult.height,
+            format: uploadResult.format,
+        }));
+
+        res.status(201).json({ images: responsePayload });
     } catch (error) {
         console.error('Upload error:', error);
         res.status(500).json({ message: 'Server error during upload' });
     }
 };
 
-// @desc    Get image by filename
+
+// @desc    Get image metadata by public_id
 // @route   GET /api/images/:filename
 // @access  Public
-const getImage = (req, res) => {
+const getImage = async (req, res) => {
     try {
-        gfs = getGfs();
-        
-        if (!gfs) {
-            return res.status(500).json({ message: 'GridFS not initialized' });
+        const publicId = req.params.filename;
+
+        const details = await cloudinary.api.resource(publicId, {
+            resource_type: 'image',
+        });
+
+        if (!details || !details.secure_url) {
+            return res.status(404).json({ message: 'Image not found' });
         }
 
-        const filename = req.params.filename;
-
-        gfs.files.findOne({ filename: filename }, (err, file) => {
-            if (err) {
-                return res.status(500).json({ message: 'Database error' });
-            }
-
-            if (!file) {
-                return res.status(404).json({ message: 'Image not found' });
-            }
-
-            // Check if it's an image
-            if (file.contentType && file.contentType.startsWith('image/')) {
-                const readStream = gfs.createReadStream(file.filename);
-                res.set('Content-Type', file.contentType);
-                readStream.pipe(res);
-            } else {
-                res.status(400).json({ message: 'Not an image file' });
-            }
+        res.json({
+            publicId: details.public_id,
+            secureUrl: details.secure_url,
+            width: details.width,
+            height: details.height,
+            format: details.format,
+            bytes: details.bytes,
         });
     } catch (error) {
         console.error('Get image error:', error);
@@ -66,67 +78,60 @@ const getImage = (req, res) => {
     }
 };
 
-// @desc    Delete image by filename
+// @desc    Delete image by public_id
 // @route   DELETE /api/images/:filename
 // @access  Public
-const deleteImage = (req, res) => {
+const deleteImage = async (req, res) => {
     try {
-        gfs = getGfs();
-        
-        if (!gfs) {
-            return res.status(500).json({ message: 'GridFS not initialized' });
+        const publicId = req.params.filename;
+
+        const result = await new Promise((resolve, reject) => {
+            cloudinary.uploader.destroy(
+                publicId,
+                { resource_type: 'image' },
+                (error, result) => {
+                    if (error) return reject(error);
+                    resolve(result);
+                }
+            );
+        });
+
+        if (!result || result.result !== 'ok') {
+            return res.status(404).json({ message: 'Image not found' });
         }
 
-        const filename = req.params.filename;
-
-        gfs.files.findOneAndDelete({ filename: filename }, (err, file) => {
-            if (err) {
-                return res.status(500).json({ message: 'Database error' });
-            }
-
-            if (!file) {
-                return res.status(404).json({ message: 'Image not found' });
-            }
-
-            res.json({ message: 'Image deleted successfully' });
-        });
+        res.json({ message: 'Image deleted successfully' });
     } catch (error) {
         console.error('Delete image error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 };
 
-// @desc    Get all images
+// @desc    Get all images (from folder chat-app)
 // @route   GET /api/images
 // @access  Public
-const getAllImages = (req, res) => {
+const getAllImages = async (req, res) => {
     try {
-        gfs = getGfs();
-        
-        if (!gfs) {
-            return res.status(500).json({ message: 'GridFS not initialized' });
+        const resources = await cloudinary.search
+            .expression('folder:chat-app')
+            .sort_by('created_at', 'desc')
+            .max_results(50)
+            .execute();
+
+        const imageFiles = (resources?.resources || []).map(r => ({
+            publicId: r.public_id,
+            filename: r.public_id,
+            contentType: r.format ? `image/${r.format}` : undefined,
+            size: r.bytes,
+            uploadDate: r.created_at,
+            url: r.secure_url,
+        }));
+
+        if (!imageFiles || imageFiles.length === 0) {
+            return res.status(404).json({ message: 'No images found' });
         }
 
-        gfs.files.find().toArray((err, files) => {
-            if (err) {
-                return res.status(500).json({ message: 'Database error' });
-            }
-
-            if (!files || files.length === 0) {
-                return res.status(404).json({ message: 'No images found' });
-            }
-
-            // Return only file metadata (not the actual files)
-            const imageFiles = files.map(file => ({
-                filename: file.filename,
-                contentType: file.contentType,
-                size: file.length,
-                uploadDate: file.uploadDate,
-                url: `/api/images/${file.filename}`
-            }));
-
-            res.json(imageFiles);
-        });
+        res.json(imageFiles);
     } catch (error) {
         console.error('Get all images error:', error);
         res.status(500).json({ message: 'Server error' });
@@ -138,5 +143,5 @@ module.exports = {
     getImage,
     deleteImage,
     getAllImages,
-    setupGridFS
 };
+
