@@ -14,6 +14,7 @@ const toMessagePayload = (message) => {
         sender: senderId,
         recipient: recipientId,
         content: message.content,
+        attachments: message.attachments || [],
         read: message.read,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
@@ -56,7 +57,7 @@ const sendMessagePushNotification = async (recipientUser, senderUser, message) =
 // Send a new message
 exports.sendMessage = async (req, res) => {
     try {
-        const { recipient, content } = req.body;
+        const { recipient, content, attachments } = req.body;
         const sender = req.user._id;
 
         // Find recipient by email
@@ -66,10 +67,13 @@ exports.sendMessage = async (req, res) => {
         }
         const senderUser = await User.findById(sender).select('username email');
 
+        const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+
         const message = await Message.create({
             sender,
             recipient: recipientUser._id,
-            content: String(content)
+            content: content !== undefined && content !== null ? String(content) : '',
+            attachments: normalizedAttachments,
         });
 
         // Populate sender info

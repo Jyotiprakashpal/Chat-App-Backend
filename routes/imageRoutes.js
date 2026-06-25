@@ -13,23 +13,25 @@ const {
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
+        fileSize: 50 * 1024 * 1024, // 50MB
     },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif|webp/;
-        const extname = allowedTypes.test(require('path').extname(file.originalname).toLowerCase());
-        const mimetype = allowedTypes.test(file.mimetype);
-
-        if (mimetype && extname) return cb(null, true);
-        cb(new Error('Only image files are allowed!'));
+        // Allow images, videos, and common documents; Cloudinary will handle via resource_type:'auto'.
+        const allowedExt = /\.(jpe?g|png|gif|webp|mp4|mov|m4v|webm|avi|mkv|pdf|doc|docx|txt|ppt|pptx|xls|xlsx)$/i;
+        const extname = allowedExt.test(require('path').extname(file.originalname).toLowerCase());
+        if (extname) return cb(null, true);
+        cb(new Error('Only image/video/doc files are allowed!'));
     },
 });
 
 router.post('/upload', upload.array('image', 10), uploadImage);
+
 
 router.get('/', getAllImages);
 router.get('/:filename', getImage);
 router.delete('/:filename', deleteImage);
 
 module.exports = router;
+
+
 

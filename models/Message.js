@@ -16,9 +16,18 @@ const messageSchema = new mongoose.Schema({
     },
     content: {
         type: String,
-        required: [true, 'Please provide message content'],
-        trim: true
+        required: false,
+        trim: true,
     },
+    attachments: [
+        {
+            filename: { type: String, required: false },
+            url: { type: String, required: false },
+            contentType: { type: String, required: false },
+            format: { type: String, required: false },
+            resourceType: { type: String, required: false },
+        },
+    ],
     read: {
         type: Boolean,
         default: false

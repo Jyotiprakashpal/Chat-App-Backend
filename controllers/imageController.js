@@ -15,7 +15,7 @@ const uploadImage = async (req, res) => {
                 const streamUpload = cloudinary.uploader.upload_stream(
                     {
                         folder: 'chat-app',
-                        resource_type: 'image',
+                        resource_type: 'auto',
                     },
                     (error, result) => {
                         if (error) return reject(error);
@@ -30,15 +30,17 @@ const uploadImage = async (req, res) => {
         const results = await Promise.all(files.map(uploadOne));
 
         const responsePayload = results.map((uploadResult) => ({
-            message: 'Image uploaded successfully',
+            message: 'File uploaded successfully',
             publicId: uploadResult.public_id,
             filename: uploadResult.public_id,
             url: uploadResult.secure_url,
-            contentType: uploadResult.format ? `image/${uploadResult.format}` : undefined,
+            // Cloudinary returns different metadata for images vs raw/documents.
+            contentType: uploadResult.format ? `${uploadResult.resource_type}/${uploadResult.format}` : uploadResult.resource_type,
             bytes: uploadResult.bytes,
             width: uploadResult.width,
             height: uploadResult.height,
             format: uploadResult.format,
+            resourceType: uploadResult.resource_type,
         }));
 
         res.status(201).json({ images: responsePayload });
@@ -57,7 +59,7 @@ const getImage = async (req, res) => {
         const publicId = req.params.filename;
 
         const details = await cloudinary.api.resource(publicId, {
-            resource_type: 'image',
+            resource_type: 'auto',
         });
 
         if (!details || !details.secure_url) {
@@ -88,7 +90,8 @@ const deleteImage = async (req, res) => {
         const result = await new Promise((resolve, reject) => {
             cloudinary.uploader.destroy(
                 publicId,
-                { resource_type: 'image' },
+                { resource_type: 'auto' },
+
                 (error, result) => {
                     if (error) return reject(error);
                     resolve(result);
@@ -121,7 +124,9 @@ const getAllImages = async (req, res) => {
         const imageFiles = (resources?.resources || []).map(r => ({
             publicId: r.public_id,
             filename: r.public_id,
-            contentType: r.format ? `image/${r.format}` : undefined,
+            contentType: r.format ? `${r.resource_type}/${r.format}` : r.resource_type,
+            format: r.format || undefined,
+
             size: r.bytes,
             uploadDate: r.created_at,
             url: r.secure_url,
@@ -144,4 +149,6 @@ module.exports = {
     deleteImage,
     getAllImages,
 };
+
+
 
