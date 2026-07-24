@@ -25,7 +25,7 @@ const initializeSocket = (io) => {
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secretkey');
             const user = await User.findById(decoded.id).select('-password');
-            
+
             if (!user) {
                 return next(new Error('User not found'));
             }
@@ -59,8 +59,9 @@ const initializeSocket = (io) => {
             try {
                 const recipientIdentifier = data.recipientId || data.receiverId || data.recipient || data.receiverEmail;
                 const content = data.content || data.message || data.text;
+                const attachments = Array.isArray(data.attachments) ? data.attachments : [];
 
-                if (!recipientIdentifier || !content || !String(content).trim()) {
+                if (!recipientIdentifier || (!content && attachments.length === 0)) {
                     throw new Error('Recipient and message content are required');
                 }
 
@@ -70,7 +71,6 @@ const initializeSocket = (io) => {
                 }
 
                 const recipient = await User.findOne({ $or: recipientFilters }).select('_id username email expoPushTokens');
-
                 if (!recipient) {
                     throw new Error('Recipient not found');
                 }
@@ -78,7 +78,8 @@ const initializeSocket = (io) => {
                 const message = await Message.create({
                     sender: socket.user._id,
                     recipient: recipient._id,
-                    content: String(content).trim()
+                    content: content ? String(content).trim() : '',
+                    attachments,
                 });
 
                 const payload = {
@@ -86,6 +87,7 @@ const initializeSocket = (io) => {
                     sender: getUserId(socket.user),
                     recipient: recipient._id.toString(),
                     content: message.content,
+                    attachments: message.attachments || [],
                     read: message.read,
                     createdAt: message.createdAt,
                     updatedAt: message.updatedAt,
@@ -103,10 +105,11 @@ const initializeSocket = (io) => {
 
                 io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('newMessage', payload);
                 io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('receiveMessage', payload);
+
                 sendExpoPushNotification({
                     tokens: recipient.expoPushTokens,
                     title: socket.user.username || socket.user.email || 'New message',
-                    body: payload.content,
+                    body: payload.content || 'Sent an attachment',
                     data: {
                         type: 'message',
                         messageId: payload._id,
@@ -162,3 +165,4 @@ const initializeSocket = (io) => {
 };
 
 module.exports = initializeSocket;
+
