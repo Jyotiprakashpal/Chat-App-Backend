@@ -33,10 +33,6 @@ const messageSchema = new mongoose.Schema({
             resourceType: { type: String, required: false },
         },
     ],
-    attachment: {
-        type: mongoose.Schema.Types.Mixed,
-        required: false
-    },
     read: {
         type: Boolean,
         default: false

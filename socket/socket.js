@@ -13,11 +13,7 @@ const getUserId = (user) => user._id.toString();
 const getAttachmentsFromMessage = (message) => {
     if (Array.isArray(message.attachments) && message.attachments.length > 0) {
         return message.attachments;
-    }
-
-    if (Array.isArray(message.attachment?.images)) {
-        return message.attachment.images;
-    }
+    } 
 
     return [];
 };
@@ -112,9 +108,8 @@ const initializeSocket = (io) => {
                 const attachments = Array.isArray(data.attachments)
                     ? data.attachments
                     : Array.isArray(data.attachment?.images)
-                        ? data.attachment.images
-                        : [];
-                const attachment = data.attachment || (attachments.length > 0 ? { images: attachments } : undefined);
+                        ? data.attachment.images 
+                        : (data.attachment ? [data.attachment] : []);
 
                 if (!recipientIdentifier || ((!content || !String(content).trim()) && attachments.length === 0)) {
                     throw new Error('Recipient and message content or attachments are required');
@@ -138,8 +133,7 @@ const initializeSocket = (io) => {
                     sender: socket.user._id,
                     recipient: recipient._id,
                     content: content !== undefined && content !== null ? String(content).trim() : '',
-                    attachments,
-                    attachment
+                    attachments
                 });
 
                 const messageAttachments = getAttachmentsFromMessage(message);
@@ -150,7 +144,6 @@ const initializeSocket = (io) => {
                     recipient: recipient._id.toString(),
                     content: message.content,
                     attachments: messageAttachments,
-                    attachment: message.attachment || (messageAttachments.length > 0 ? { images: messageAttachments } : undefined),
                     read: message.read,
                     createdAt: message.createdAt,
                     updatedAt: message.updatedAt,
@@ -223,4 +216,3 @@ const initializeSocket = (io) => {
 };
 
 module.exports = initializeSocket;
-

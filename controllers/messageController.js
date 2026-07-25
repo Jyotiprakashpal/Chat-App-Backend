@@ -8,11 +8,7 @@ const { sendExpoPushNotification } = require('../utils/pushNotifications');
 const getAttachmentsFromMessage = (message) => {
     if (Array.isArray(message.attachments) && message.attachments.length > 0) {
         return message.attachments;
-    }
-
-    if (Array.isArray(message.attachment?.images)) {
-        return message.attachment.images;
-    }
+    } 
 
     return [];
 };
@@ -28,7 +24,6 @@ const toMessagePayload = (message) => {
         recipient: recipientId,
         content: message.content,
         attachments,
-        attachment: message.attachment || (attachments.length > 0 ? { images: attachments } : undefined),
         read: message.read,
         editedAt: message.editedAt,
         deletedAt: message.deletedAt,
@@ -102,21 +97,19 @@ exports.sendMessage = async (req, res) => {
             ? requestAttachments
             : Array.isArray(attachment?.images)
                 ? attachment.images
-                : [];
-        const normalizedAttachment = attachment || (normalizedAttachments.length > 0 ? { images: normalizedAttachments } : undefined);
+                : (attachment ? [attachment] : []);
 
         if (content === 'Sent an attachment' && normalizedAttachments.length === 0) {
             return res.status(400).json({
                 message: 'Attachment upload response is required for media messages'
             });
         }
-
+        
         const message = await Message.create({
             sender,
             recipient: recipientUser._id,
             content: content !== undefined && content !== null ? String(content) : '',
             attachments: normalizedAttachments,
-            attachment: normalizedAttachment,
         });
 
         // Populate sender info
@@ -176,7 +169,6 @@ exports.deleteMessage = async (req, res) => {
 
         message.content = 'This message was deleted';
         message.attachments = [];
-        message.attachment = undefined;
         message.isDeleted = true;
         message.isMediaDeleted = false;
         message.deletedAt = new Date();
@@ -217,20 +209,16 @@ exports.deleteMessageMedia = async (req, res) => {
         };
 
         const existingAttachments = message.attachments || [];
-        const existingImages = Array.isArray(message.attachment?.images) ? message.attachment.images : [];
         const matchedAttachments = existingAttachments.filter(matchesAttachment).length;
-        const matchedImages = existingImages.filter(matchesAttachment).length;
 
-        if (matchedAttachments === 0 && matchedImages === 0) {
+        if (matchedAttachments === 0) {
             return res.status(404).json({ message: 'Media attachment not found' });
         }
 
         const remainingAttachments = existingAttachments.filter((attachment) => !matchesAttachment(attachment));
-        const remainingImages = existingImages.filter((attachment) => !matchesAttachment(attachment));
-        const hasRemainingMedia = remainingAttachments.length > 0 || remainingImages.length > 0;
+        const hasRemainingMedia = remainingAttachments.length > 0;
 
         message.attachments = remainingAttachments;
-        message.attachment = remainingImages.length > 0 ? { ...message.attachment, images: remainingImages } : undefined;
         message.content = hasRemainingMedia
             ? message.content
             : 'This media is deleted';
