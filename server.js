@@ -8,6 +8,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 const appRoutes = require('./routes/appRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const imageRoutes = require('./routes/imageRoutes');
@@ -36,6 +37,7 @@ app.use(express.json());
 // Routes
 app.use('/api/app', appRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/images', imageRoutes);
 

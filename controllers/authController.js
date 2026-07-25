@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { cloudinary } = require('../config/cloudinary');
 const jwt = require('jsonwebtoken');
 
 const generateToken = (id) => {
@@ -113,11 +114,79 @@ exports.getAllUsers = async (req, res) => {
             if (userObj._id.toString() === currentUserId) {
                 userObj.username = `${userObj.username} (You)`;
             }
+            userObj.profileImage = user.profileImage;
             return userObj;
         });
         
         res.json(usersWithMarker);
     } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// UPDATE PROFILE IMAGE
+exports.updateProfileImage = async (req, res) => {
+    try {
+        const { publicId, url } = req.body;
+        if (!publicId || !url) {
+            return res.status(400).json({ message: 'publicId and url are required' });
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // If there's an old image, delete it from Cloudinary
+        if (user.profileImage && user.profileImage.publicId) {
+            await cloudinary.uploader.destroy(user.profileImage.publicId);
+        }
+
+        user.profileImage = { publicId, url };
+        await user.save();
+
+        const userResponse = user.toObject();
+        delete userResponse.password;
+        delete userResponse.plainPassword;
+        res.json({
+            ...userResponse
+        });
+    } catch (error) {
+        console.error('Update profile image error:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// DELETE PROFILE IMAGE
+exports.deleteProfileImage = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (!user.profileImage || !user.profileImage.publicId) {
+            return res.status(400).json({ message: 'No profile image to delete' });
+        }
+
+        // Delete from Cloudinary
+        const result = await cloudinary.uploader.destroy(user.profileImage.publicId);
+
+        if (result.result !== 'ok' && result.result !== 'not found') {
+             return res.status(500).json({ message: 'Error deleting image from Cloudinary' });
+        }
+
+        // Remove from user document
+        user.profileImage = null;
+        await user.save();
+
+        const userResponse = user.toObject();
+        delete userResponse.password;
+        delete userResponse.plainPassword;
+
+        res.json(userResponse);
+    } catch (error) {
+        console.error('Delete profile image error:', error);
         res.status(500).json({ message: error.message });
     }
 };

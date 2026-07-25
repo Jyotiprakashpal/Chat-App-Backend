@@ -39,6 +39,10 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     },
+    profileImage: {
+        publicId: { type: String, required: false },
+        url: { type: String, required: false }
+    },
     expoPushTokens: {
         type: [String],
         default: []
