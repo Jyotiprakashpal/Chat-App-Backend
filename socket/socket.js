@@ -68,7 +68,7 @@ const initializeSocket = (io) => {
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secretkey');
             const user = await User.findById(decoded.id).select('-password');
-            
+
             if (!user) {
                 return next(new Error('User not found'));
             }
@@ -130,7 +130,6 @@ const initializeSocket = (io) => {
                 }
 
                 const recipient = await User.findOne({ $or: recipientFilters }).select('_id username email expoPushTokens');
-
                 if (!recipient) {
                     throw new Error('Recipient not found');
                 }
@@ -171,7 +170,7 @@ const initializeSocket = (io) => {
                 sendExpoPushNotification({
                     tokens: recipient.expoPushTokens,
                     title: socket.user.username || socket.user.email || 'New message',
-                    body: payload.content,
+                    body: payload.content || 'Sent an attachment',
                     data: {
                         type: 'message',
                         messageId: payload._id,
@@ -224,3 +223,4 @@ const initializeSocket = (io) => {
 };
 
 module.exports = initializeSocket;
+
