@@ -10,8 +10,51 @@ let onlineUsers = new Map();
 
 const getUserId = (user) => user._id.toString();
 
+const getAttachmentsFromMessage = (message) => {
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+        return message.attachments;
+    }
+
+    if (Array.isArray(message.attachment?.images)) {
+        return message.attachment.images;
+    }
+
+    return [];
+};
+
 const emitOnlineUsers = (io) => {
     io.emit('onlineUsers', Array.from(onlineUsers.keys()));
+};
+
+const addOnlineUser = (userId, socketId) => {
+    const socketIds = onlineUsers.get(userId) || new Set();
+    socketIds.add(socketId);
+    onlineUsers.set(userId, socketIds);
+
+    return socketIds.size === 1;
+};
+
+const removeOnlineUser = (userId, socketId) => {
+    const socketIds = onlineUsers.get(userId);
+    if (!socketIds) return false;
+
+    socketIds.delete(socketId);
+    if (socketIds.size > 0) {
+        onlineUsers.set(userId, socketIds);
+        return false;
+    }
+
+    onlineUsers.delete(userId);
+    return true;
+};
+
+const emitToUser = (io, userId, event, payload) => {
+    const socketIds = onlineUsers.get(userId);
+    if (!socketIds) return;
+
+    socketIds.forEach((socketId) => {
+        io.to(socketId).emit(event, payload);
+    });
 };
 
 const initializeSocket = (io) => {
@@ -41,11 +84,14 @@ const initializeSocket = (io) => {
         console.log(`User connected: ${socket.user.username}`);
 
         // Add user to online users
-        onlineUsers.set(getUserId(socket.user), socket.id);
-        socket.join(getUserId(socket.user));
+        const userId = getUserId(socket.user);
+        const becameOnline = addOnlineUser(userId, socket.id);
+        socket.join(userId);
 
         // Broadcast online status
-        io.emit('userOnline', getUserId(socket.user));
+        if (becameOnline) {
+            io.emit('userOnline', userId);
+        }
         emitOnlineUsers(io);
 
         // Handle joining conversation rooms
@@ -54,14 +100,28 @@ const initializeSocket = (io) => {
             console.log(`User ${socket.user.username} joined conversation: ${conversationId}`);
         });
 
+        socket.on('getOnlineUsers', () => {
+            socket.emit('onlineUsers', Array.from(onlineUsers.keys()));
+        });
+
         // Handle sending messages
         socket.on('sendMessage', async (data, callback) => {
             try {
                 const recipientIdentifier = data.recipientId || data.receiverId || data.recipient || data.receiverEmail;
                 const content = data.content || data.message || data.text;
+                const attachments = Array.isArray(data.attachments)
+                    ? data.attachments
+                    : Array.isArray(data.attachment?.images)
+                        ? data.attachment.images
+                        : [];
+                const attachment = data.attachment || (attachments.length > 0 ? { images: attachments } : undefined);
 
-                if (!recipientIdentifier || !content || !String(content).trim()) {
-                    throw new Error('Recipient and message content are required');
+                if (!recipientIdentifier || ((!content || !String(content).trim()) && attachments.length === 0)) {
+                    throw new Error('Recipient and message content or attachments are required');
+                }
+
+                if (content === 'Sent an attachment' && attachments.length === 0) {
+                    throw new Error('Attachment upload response is required for media messages');
                 }
 
                 const recipientFilters = [{ email: recipientIdentifier }];
@@ -78,14 +138,20 @@ const initializeSocket = (io) => {
                 const message = await Message.create({
                     sender: socket.user._id,
                     recipient: recipient._id,
-                    content: String(content).trim()
+                    content: content !== undefined && content !== null ? String(content).trim() : '',
+                    attachments,
+                    attachment
                 });
+
+                const messageAttachments = getAttachmentsFromMessage(message);
 
                 const payload = {
                     _id: message._id.toString(),
                     sender: getUserId(socket.user),
                     recipient: recipient._id.toString(),
                     content: message.content,
+                    attachments: messageAttachments,
+                    attachment: message.attachment || (messageAttachments.length > 0 ? { images: messageAttachments } : undefined),
                     read: message.read,
                     createdAt: message.createdAt,
                     updatedAt: message.updatedAt,
@@ -102,7 +168,6 @@ const initializeSocket = (io) => {
                 };
 
                 io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('newMessage', payload);
-                io.to(getUserId(socket.user)).to(recipient._id.toString()).emit('receiveMessage', payload);
                 sendExpoPushNotification({
                     tokens: recipient.expoPushTokens,
                     title: socket.user.username || socket.user.email || 'New message',
@@ -130,32 +195,29 @@ const initializeSocket = (io) => {
         // Handle typing indicator
         socket.on('typing', (data) => {
             const { recipientId, conversationId } = data;
-            const recipientSocket = onlineUsers.get(recipientId);
-            if (recipientSocket) {
-                io.to(recipientSocket).emit('userTyping', {
-                    userId: socket.user._id,
-                    conversationId
-                });
-            }
+            emitToUser(io, recipientId, 'userTyping', {
+                userId: socket.user._id,
+                conversationId
+            });
         });
 
         // Handle read receipts
         socket.on('markRead', (data) => {
             const { senderId, conversationId } = data;
-            const senderSocket = onlineUsers.get(senderId);
-            if (senderSocket) {
-                io.to(senderSocket).emit('messagesRead', {
-                    conversationId,
-                    readBy: socket.user._id
-                });
-            }
+            emitToUser(io, senderId, 'messagesRead', {
+                conversationId,
+                readBy: socket.user._id
+            });
         });
 
         // Handle disconnect
         socket.on('disconnect', () => {
             console.log(`User disconnected: ${socket.user.username}`);
-            onlineUsers.delete(getUserId(socket.user));
-            io.emit('userOffline', getUserId(socket.user));
+            const userId = getUserId(socket.user);
+            const becameOffline = removeOnlineUser(userId, socket.id);
+            if (becameOffline) {
+                io.emit('userOffline', userId);
+            }
             emitOnlineUsers(io);
         });
     });

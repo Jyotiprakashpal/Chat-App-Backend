@@ -16,6 +16,8 @@ const uploadImage = async (req, res) => {
                     {
                         folder: 'chat-app',
                         resource_type: 'auto',
+                        use_filename: true,
+                        unique_filename: true,
                     },
                     (error, result) => {
                         if (error) return reject(error);
@@ -46,7 +48,9 @@ const uploadImage = async (req, res) => {
         res.status(201).json({ images: responsePayload });
     } catch (error) {
         console.error('Upload error:', error);
-        res.status(500).json({ message: 'Server error during upload' });
+        res.status(500).json({
+            message: error.message || 'Server error during upload',
+        });
     }
 };
 
@@ -87,17 +91,22 @@ const deleteImage = async (req, res) => {
     try {
         const publicId = req.params.filename;
 
-        const result = await new Promise((resolve, reject) => {
+        const destroyWithType = (resourceType) => new Promise((resolve, reject) => {
             cloudinary.uploader.destroy(
                 publicId,
-                { resource_type: 'auto' },
-
+                { resource_type: resourceType },
                 (error, result) => {
                     if (error) return reject(error);
                     resolve(result);
                 }
             );
         });
+
+        let result;
+        for (const resourceType of ['image', 'video', 'raw']) {
+            result = await destroyWithType(resourceType);
+            if (result?.result === 'ok') break;
+        }
 
         if (!result || result.result !== 'ok') {
             return res.status(404).json({ message: 'Image not found' });

@@ -21,14 +21,43 @@ const messageSchema = new mongoose.Schema({
     },
     attachments: [
         {
+            message: { type: String, required: false },
+            publicId: { type: String, required: false },
             filename: { type: String, required: false },
             url: { type: String, required: false },
             contentType: { type: String, required: false },
+            bytes: { type: Number, required: false },
+            width: { type: Number, required: false },
+            height: { type: Number, required: false },
             format: { type: String, required: false },
             resourceType: { type: String, required: false },
         },
     ],
+    attachment: {
+        type: mongoose.Schema.Types.Mixed,
+        required: false
+    },
     read: {
+        type: Boolean,
+        default: false
+    },
+    editedAt: {
+        type: Date,
+        required: false
+    },
+    deletedAt: {
+        type: Date,
+        required: false
+    },
+    mediaDeletedAt: {
+        type: Date,
+        required: false
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+    isMediaDeleted: {
         type: Boolean,
         default: false
     }

@@ -5,17 +5,36 @@ const Message = require('../models/Message');
 const User = require('../models/User');
 const { sendExpoPushNotification } = require('../utils/pushNotifications');
 
+const getAttachmentsFromMessage = (message) => {
+    if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+        return message.attachments;
+    }
+
+    if (Array.isArray(message.attachment?.images)) {
+        return message.attachment.images;
+    }
+
+    return [];
+};
+
 const toMessagePayload = (message) => {
     const senderId = message.sender._id ? message.sender._id.toString() : message.sender.toString();
     const recipientId = message.recipient._id ? message.recipient._id.toString() : message.recipient.toString();
+    const attachments = getAttachmentsFromMessage(message);
 
     return {
         _id: message._id.toString(),
         sender: senderId,
         recipient: recipientId,
         content: message.content,
-        attachments: message.attachments || [],
+        attachments,
+        attachment: message.attachment || (attachments.length > 0 ? { images: attachments } : undefined),
         read: message.read,
+        editedAt: message.editedAt,
+        deletedAt: message.deletedAt,
+        mediaDeletedAt: message.mediaDeletedAt,
+        isDeleted: message.isDeleted,
+        isMediaDeleted: message.isMediaDeleted,
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
         senderUser: message.sender._id ? {
@@ -37,7 +56,18 @@ const emitMessage = (req, message) => {
 
     const payload = toMessagePayload(message);
     io.to(payload.sender).to(payload.recipient).emit('newMessage', payload);
-    io.to(payload.sender).to(payload.recipient).emit('receiveMessage', payload);
+};
+
+const emitMessageUpdate = (req, message) => {
+    const io = req.app.get('io');
+    if (!io) return;
+
+    const payload = toMessagePayload(message);
+    io.to(payload.sender).to(payload.recipient).emit('messageUpdated', payload);
+};
+
+const findOwnedMessage = async (messageId, senderId) => {
+    return Message.findOne({ _id: messageId, sender: senderId });
 };
 
 const sendMessagePushNotification = async (recipientUser, senderUser, message) => {
@@ -57,7 +87,8 @@ const sendMessagePushNotification = async (recipientUser, senderUser, message) =
 // Send a new message
 exports.sendMessage = async (req, res) => {
     try {
-        const { recipient, content, attachments } = req.body;
+        const { recipient, content, attachment } = req.body;
+        const requestAttachments = req.body.attachments;
         const sender = req.user._id;
 
         // Find recipient by email
@@ -67,13 +98,25 @@ exports.sendMessage = async (req, res) => {
         }
         const senderUser = await User.findById(sender).select('username email');
 
-        const normalizedAttachments = Array.isArray(attachments) ? attachments : [];
+        const normalizedAttachments = Array.isArray(requestAttachments)
+            ? requestAttachments
+            : Array.isArray(attachment?.images)
+                ? attachment.images
+                : [];
+        const normalizedAttachment = attachment || (normalizedAttachments.length > 0 ? { images: normalizedAttachments } : undefined);
+
+        if (content === 'Sent an attachment' && normalizedAttachments.length === 0) {
+            return res.status(400).json({
+                message: 'Attachment upload response is required for media messages'
+            });
+        }
 
         const message = await Message.create({
             sender,
             recipient: recipientUser._id,
             content: content !== undefined && content !== null ? String(content) : '',
             attachments: normalizedAttachments,
+            attachment: normalizedAttachment,
         });
 
         // Populate sender info
@@ -84,6 +127,121 @@ exports.sendMessage = async (req, res) => {
         sendMessagePushNotification(recipientUser, senderUser, message);
 
         res.status(201).json(message);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Edit a text message
+exports.updateMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { content } = req.body;
+
+        if (!content || !String(content).trim()) {
+            return res.status(400).json({ message: 'Message content is required' });
+        }
+
+        const message = await findOwnedMessage(messageId, req.user._id);
+        if (!message) {
+            return res.status(404).json({ message: 'Message not found' });
+        }
+
+        if (message.isDeleted) {
+            return res.status(400).json({ message: 'Deleted messages cannot be edited' });
+        }
+
+        message.content = String(content).trim();
+        message.editedAt = new Date();
+        await message.save();
+        await message.populate('sender', 'username email');
+        await message.populate('recipient', 'username email');
+
+        emitMessageUpdate(req, message);
+        res.json(toMessagePayload(message));
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Soft delete a full message from chat history
+exports.deleteMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const message = await findOwnedMessage(messageId, req.user._id);
+
+        if (!message) {
+            return res.status(404).json({ message: 'Message not found' });
+        }
+
+        message.content = 'This message was deleted';
+        message.attachments = [];
+        message.attachment = undefined;
+        message.isDeleted = true;
+        message.isMediaDeleted = false;
+        message.deletedAt = new Date();
+        await message.save();
+        await message.populate('sender', 'username email');
+        await message.populate('recipient', 'username email');
+
+        emitMessageUpdate(req, message);
+        res.json(toMessagePayload(message));
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Mark one media attachment as deleted after the file is removed from Cloudinary
+exports.deleteMessageMedia = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { publicId, filename, url } = req.body;
+        const identifiers = [publicId, filename, url].filter(Boolean);
+
+        if (identifiers.length === 0) {
+            return res.status(400).json({ message: 'Media identifier is required' });
+        }
+
+        const message = await findOwnedMessage(messageId, req.user._id);
+        if (!message) {
+            return res.status(404).json({ message: 'Message not found' });
+        }
+
+        const matchesAttachment = (attachment) => {
+            const value = attachment?.toObject ? attachment.toObject() : attachment;
+            return identifiers.some((identifier) => (
+                value.publicId === identifier ||
+                value.filename === identifier ||
+                value.url === identifier
+            ));
+        };
+
+        const existingAttachments = message.attachments || [];
+        const existingImages = Array.isArray(message.attachment?.images) ? message.attachment.images : [];
+        const matchedAttachments = existingAttachments.filter(matchesAttachment).length;
+        const matchedImages = existingImages.filter(matchesAttachment).length;
+
+        if (matchedAttachments === 0 && matchedImages === 0) {
+            return res.status(404).json({ message: 'Media attachment not found' });
+        }
+
+        const remainingAttachments = existingAttachments.filter((attachment) => !matchesAttachment(attachment));
+        const remainingImages = existingImages.filter((attachment) => !matchesAttachment(attachment));
+        const hasRemainingMedia = remainingAttachments.length > 0 || remainingImages.length > 0;
+
+        message.attachments = remainingAttachments;
+        message.attachment = remainingImages.length > 0 ? { ...message.attachment, images: remainingImages } : undefined;
+        message.content = hasRemainingMedia
+            ? message.content
+            : 'This media is deleted';
+        message.isMediaDeleted = !hasRemainingMedia;
+        message.mediaDeletedAt = new Date();
+        await message.save();
+        await message.populate('sender', 'username email');
+        await message.populate('recipient', 'username email');
+
+        emitMessageUpdate(req, message);
+        res.json(toMessagePayload(message));
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
